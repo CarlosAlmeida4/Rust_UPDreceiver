@@ -1,39 +1,74 @@
-use serialport;
-use std::time::Duration;
+use hidapi::{HidApi, HidDevice};
 use std::io::{self, Write};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Specify your Windows COM port (e.g., COM4) and baud rate
-    let port_name = "COM8";  
-    let baud_rate = 115_200;
+// Default VID list for TinyUSB, Adafruit, RaspberryPi, and Espressif
+const USB_VID: [u16; 4] = [0xcafe, 0x239a, 0x2e8a, 0x303a];
 
-    // Open the serial port
-    let mut port = serialport::new(port_name, baud_rate)
-        .timeout(Duration::from_secs(1))
-        .flow_control(serialport::FlowControl::None) // Ensure flow control is disabled
-        .open()?;
-    println!("Connected to {}", port_name);
+fn main() {
+    // Initialize the HID API
+    let api = match HidApi::new() {
+        Ok(api) => api,
+        Err(e) => {
+            eprintln!("Failed to initialize HID API: {}", e);
+            return;
+        }
+    };
 
-    // Create a loop to send data
-    let stdin = io::stdin();
+    println!("VID list: {:02x?}", USB_VID);
+
+    for &vid in &USB_VID {
+        for device_info in api.device_list().filter(|d| d.vendor_id() == vid) {
+            println!("Found device: {:?}", device_info);
+
+            if let usage = device_info.usage() {
+                if usage == 1 {
+                    match api.open(device_info.vendor_id(), device_info.product_id()) {
+                        Ok(mut device) => {
+                            interact_with_device(&mut device);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to open device: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn interact_with_device(device: &mut HidDevice) {
+    println!("Connected to device. Start sending text.");
+
     loop {
-        let mut input = String::new();
-        println!("Enter command to send (or type 'exit' to quit):");
-        input.clear();
-        stdin.read_line(&mut input)?;
+        // Get input from the console
+        print!("Send text to HID Device: ");
+        io::stdout().flush().unwrap();
 
-        let trimmed_input = input.trim();
-        if trimmed_input.eq_ignore_ascii_case("exit") {
-            println!("Exiting...");
-            break;
+        let mut input = String::new();
+        if let Err(e) = io::stdin().read_line(&mut input) {
+            eprintln!("Failed to read input: {}", e);
+            continue;
         }
 
-        // Append \r\n to the input to ensure Arduino receives the command properly
-        let command = format!("{}\r\n", trimmed_input);
-        port.write_all(command.as_bytes())?;
-        port.flush()?;
-        println!("Sent: {}", trimmed_input);
-    }
+        // Encode the input as a UTF-8 byte array, preceded by a dummy report ID (0x00)
+        let mut output = vec![0x00];
+        output.extend_from_slice(input.trim().as_bytes());
 
-    Ok(())
+        // Send the data to the HID device
+        if let Err(e) = device.write(&output) {
+            eprintln!("Failed to write to device: {}", e);
+            continue;
+        }
+
+        // Read the response from the device
+        let mut buf = [0u8; 64];
+        match device.read(&mut buf) {
+            Ok(len) => {
+                println!("Received from HID Device: {:?}\n", &buf[..len]);
+            }
+            Err(e) => {
+                eprintln!("Failed to read from device: {}", e);
+            }
+        }
+    }
 }

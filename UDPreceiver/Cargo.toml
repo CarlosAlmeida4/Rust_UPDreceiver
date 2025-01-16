@@ -6,5 +6,4 @@ edition = "2021"
 
 
 [dependencies]
-serialport = "4.6.1"
-clap = "4.5.26"
+hidapi = "2.0"

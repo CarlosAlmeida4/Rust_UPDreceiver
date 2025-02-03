@@ -102,10 +102,11 @@ async fn start_udp_listener(tx: mpsc::Sender<TelemetryData>) -> io::Result<()> {
         match socket.recv_from(&mut buf).await {
             Ok((size, _src)) => {
                 //println!("Received {} bytes from {}", size, src);
-                let packet = parse_packet(&buf[..size]); // Store packet data
-                // Send the packet to the HID task
-                if tx.send(packet).await.is_err() {
-                    eprintln!("Failed to send packet to HID task");
+                if let Ok(packet) = parse_packet(&buf[..size]) {
+                    // Send the packet to the HID task
+                    if tx.send(packet).await.is_err() {
+                        eprintln!("Failed to send packet to HID task");
+                    }
                 }
             }
             Err(e) => {
@@ -159,7 +160,7 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
         // Prepare the message to send
         let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
         
-        output.extend_from_slice(&last_packet);
+        //output.extend_from_slice(&last_packet);//TODO: ve la o que fazes aqui
 
         // Send to HID device
         if let Err(e) = device.write(&output) {
@@ -189,10 +190,11 @@ fn create_hid_packet(mut input:TelemetryData, packetID:u8)
     let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
     
     //first byte is the packet ID
+    output[0] = packetID;
 
 }
 
-fn parse_packet(buffer: &[u8]) -> TelemetryData {
+fn parse_packet(buffer: &[u8]) -> Result<TelemetryData, &'static str> {
     let mut offset = 0;
 
     let read_u32 = |buf: &[u8]| ->  Result<u32,&'static str>{
@@ -401,6 +403,6 @@ fn parse_packet(buffer: &[u8]) -> TelemetryData {
         stage_length,
     };
 
-    packet
+    Ok(packet)
 
 }

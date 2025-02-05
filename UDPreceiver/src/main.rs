@@ -88,9 +88,10 @@ async fn main() -> io::Result<()> {
 }
 
 async fn start_udp_listener(tx: mpsc::Sender<TelemetryData>) -> io::Result<()> {
-    let mut addr = String::new();
-    println!("Please input the IP and the port:");
-    io::stdin().read_line(&mut addr)?;
+    //let mut addr = String::new();
+    //println!("Please input the IP and the port:");
+    //io::stdin().read_line(&mut addr)?;
+    let mut addr = String::from("127.0.0.1:20782");
 
     addr = addr.trim().to_string(); // Remove newline characters
     let socket = AsyncUdpSocket::bind(&addr).await?;
@@ -149,7 +150,68 @@ async fn start_hid_interaction(mut rx: mpsc::Receiver<TelemetryData>) {
 async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<TelemetryData>) {
     println!("Connected to HID device. Sending UDP packets every 10ms.");
 
-    let mut last_packet; // Default empty packet
+    let mut last_packet = TelemetryData {
+        packet_4cc: 0,
+        packet_uid: 0,
+        shiftlights_fraction: 0.0,
+        shiftlights_rpm_start: 0.0,
+        shiftlights_rpm_end: 0.0,
+        shiftlights_rpm_valid: false,
+        vehicle_gear_index: 0,
+        vehicle_gear_index_neutral: 0,
+        vehicle_gear_index_reverse: 0,
+        vehicle_gear_maximum: 0,
+        vehicle_speed: 0.0,
+        vehicle_transmission_speed: 0.0,
+        vehicle_position_x: 0.0,
+        vehicle_position_y: 0.0,
+        vehicle_position_z: 0.0,
+        vehicle_velocity_x: 0.0,
+        vehicle_velocity_y: 0.0,
+        vehicle_velocity_z: 0.0,
+        vehicle_acceleration_x: 0.0,
+        vehicle_acceleration_y: 0.0,
+        vehicle_acceleration_z: 0.0,
+        vehicle_left_direction_x: 0.0,
+        vehicle_left_direction_y: 0.0,
+        vehicle_left_direction_z: 0.0,
+        vehicle_forward_direction_x: 0.0,
+        vehicle_forward_direction_y: 0.0,
+        vehicle_forward_direction_z: 0.0,
+        vehicle_up_direction_x: 0.0,
+        vehicle_up_direction_y: 0.0,
+        vehicle_up_direction_z: 0.0,
+        vehicle_hub_position_bl: 0.0,
+        vehicle_hub_position_br: 0.0,
+        vehicle_hub_position_fl: 0.0,
+        vehicle_hub_position_fr: 0.0,
+        vehicle_hub_velocity_bl: 0.0,
+        vehicle_hub_velocity_br: 0.0,
+        vehicle_hub_velocity_fl: 0.0,
+        vehicle_hub_velocity_fr: 0.0,
+        vehicle_cp_forward_speed_bl: 0.0,
+        vehicle_cp_forward_speed_br: 0.0,
+        vehicle_cp_forward_speed_fl: 0.0,
+        vehicle_cp_forward_speed_fr: 0.0,
+        vehicle_brake_temperature_bl: 0.0,
+        vehicle_brake_temperature_br: 0.0,
+        vehicle_brake_temperature_fl: 0.0,
+        vehicle_brake_temperature_fr: 0.0,
+        vehicle_engine_rpm_max: 0.0,
+        vehicle_engine_rpm_idle: 0.0,
+        vehicle_engine_rpm_current: 0.0,
+        vehicle_throttle: 0.0,
+        vehicle_brake: 0.0,
+        vehicle_clutch: 0.0,
+        vehicle_steering: 0.0,
+        vehicle_handbrake: false,
+        game_total_time: 0.0,
+        game_delta_time: 0.0,
+        game_frame_count: 0,
+        stage_current_time: 0.0,
+        stage_current_distance: 0.0,
+        stage_length: 0.0,
+    };
 
     loop {
         // Check if there's a new packet from UDP
@@ -159,7 +221,7 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
 
         // Prepare the message to send
         let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
-        
+        output = create_hid_packet(&last_packet,0);
         //output.extend_from_slice(&last_packet);//TODO: ve la o que fazes aqui
 
         // Send to HID device
@@ -171,28 +233,19 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
         let mut buf = [0u8; 64];
         match device.read(&mut buf) {
             Ok(len) => {
-                //println!("Received from HID Device: {:?}\n", &buf[..len]);
+                println!("Received from HID Device: {:?}\n", &buf[..len]);
             }
             Err(e) => {
                 eprintln!("Failed to read from device: {}", e);
             }
         }
 
-        // Sleep asynchronously for 10ms
-        sleep(Duration::from_millis(10)).await;
+        // Sleep asynchronously for 1ms
+        sleep(Duration::from_millis(1)).await;
     }
 }
 
-//TODO : estava aqui a criar esta funcao, input é a struct e o packet ID, 0 é gear
-fn create_hid_packet(mut input:TelemetryData, packetID:u8)
-{
-    // Prepare the message to send
-    let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
-    
-    //first byte is the packet ID
-    output[0] = packetID;
 
-}
 
 fn parse_packet(buffer: &[u8]) -> Result<TelemetryData, &'static str> {
     let mut offset = 0;
@@ -405,4 +458,24 @@ fn parse_packet(buffer: &[u8]) -> Result<TelemetryData, &'static str> {
 
     Ok(packet)
 
+}
+
+
+//TODO : estava aqui a criar esta funcao, input é a struct e o packet ID, 0 é gear
+/**
+ * MAX Size for hid packet 64 bytes
+ */
+fn create_hid_packet(input:&TelemetryData, packetID:u8) -> Vec<u8>{
+    // Prepare the message to send
+    let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
+    
+    //first byte is the packet ID
+    output[0] = packetID;
+    match packetID {
+        0 => { output.push(input.vehicle_gear_index);
+                    /*println!("Sending gear Index");*/},
+        _ => println!("Not considered yet"), //TODO
+    }
+
+    output
 }

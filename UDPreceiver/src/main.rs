@@ -221,7 +221,7 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
 
         // Prepare the message to send
         let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
-        output = create_hid_packet(&last_packet,0);
+        output = create_hid_packet(&last_packet,1);
         //output.extend_from_slice(&last_packet);//TODO: ve la o que fazes aqui
 
         // Send to HID device
@@ -470,10 +470,10 @@ fn create_hid_packet(input:&TelemetryData, packetID:u8) -> Vec<u8>{
     let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
     
     //first byte is the packet ID
-    output[0] = packetID;
+    output.push(packetID);
     match packetID {
-        0 => { output.push(input.vehicle_gear_index);
-                    /*println!("Sending gear Index");*/},
+        1 => { output.push(input.vehicle_gear_index);
+                    /*println!("Sending gear Index {}", input.vehicle_gear_index);*/},
         _ => println!("Not considered yet"), //TODO
     }
 

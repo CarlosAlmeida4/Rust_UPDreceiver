@@ -240,8 +240,8 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
             }
         }
 
-        // Sleep asynchronously for 1ms
-        sleep(Duration::from_millis(1)).await;
+        // Sleep asynchronously for 10ms
+        sleep(Duration::from_millis(100)).await;
     }
 }
 

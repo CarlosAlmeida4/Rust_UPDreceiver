@@ -1,9 +1,9 @@
 use hidapi::{HidApi, HidDevice};
 use core::str;
-use std::net::UdpSocket;
 use std::io::{self, Write};
-use tokio::time::{Sleep,Duration};
-use tokio::{net::UdpSocket as AsyncUdpSocket, task};
+use tokio::time::{sleep,Duration};
+use tokio::{net::UdpSocket as AsyncUdpSocket, task, sync::mpsc};
+//use serde::{Serialize,Deserialize};
 
 // Default VID list for TinyUSB, Adafruit, RaspberryPi, and Espressif
 const USB_VID: [u16; 4] = [0xcafe, 0x239a, 0x2e8a, 0x303a];
@@ -75,45 +75,49 @@ struct TelemetryData {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let upd_task = task::spawn(start_udp_listener());
-    let hid_task = task::spawn(start_hid_interaction());
+    // Create a channel to send UDP packets to the HID task
+    let (tx, rx) = mpsc::channel::<TelemetryData>(10);
 
-    let jointTask = tokio::join!(upd_task,hid_task);
+    let udp_task = task::spawn(start_udp_listener(tx));
+    let hid_task = task::spawn(start_hid_interaction(rx));
+
+    // Wait for both tasks to complete
+    let _ = tokio::join!(udp_task, hid_task);
+
     Ok(())
 }
 
-async fn start_udp_listener() -> io::Result<()> {
-    let mut addr = String::new();
-    println!("Please input the IP and the port");
-    io::stdin().read_line(&mut addr)?;
-    
-    addr.pop(); //pop out \n
-    addr.pop(); //pop out \r
+async fn start_udp_listener(tx: mpsc::Sender<TelemetryData>) -> io::Result<()> {
+    //let mut addr = String::new();
+    //println!("Please input the IP and the port:");
+    //io::stdin().read_line(&mut addr)?;
+    let mut addr = String::from("127.0.0.1:20782");
 
-    let socket = UdpSocket::bind(addr.clone()).expect("cannot bind to address");
-    println!("Listening on socket {}",addr);
+    addr = addr.trim().to_string(); // Remove newline characters
+    let socket = AsyncUdpSocket::bind(&addr).await?;
+    println!("Listening on socket {}", addr);
 
-    let mut buf = [0u8;1024];
+    let mut buf = [0u8; 1024];
 
     loop {
-        match socket.recv_from(&mut buf) {
-            Ok((size,src)) => {
-                //println!("Received {} bytes from {}",size,src);
+        match socket.recv_from(&mut buf).await {
+            Ok((size, _src)) => {
+                //println!("Received {} bytes from {}", size, src);
                 if let Ok(packet) = parse_packet(&buf[..size]) {
-                    println!("Id: {:?}", packet.packet_uid);
-                    println!("Gear Index: {:?}", packet.vehicle_gear_index);
-                } else {
-                    println!("Failed to parse the packet");
+                    // Send the packet to the HID task
+                    if tx.send(packet).await.is_err() {
+                        eprintln!("Failed to send packet to HID task");
+                    }
                 }
             }
             Err(e) => {
-                eprintln!("Error receiving data: {}",e);
+                eprintln!("Error receiving data: {}", e);
             }
         }
     }
 }
 
-async fn start_hid_interaction() {
+async fn start_hid_interaction(mut rx: mpsc::Receiver<TelemetryData>) {
     let api = match HidApi::new() {
         Ok(api) => api,
         Err(e) => {
@@ -130,8 +134,9 @@ async fn start_hid_interaction() {
 
             if device_info.usage() == 1 {
                 match api.open(device_info.vendor_id(), device_info.product_id()) {
-                    Ok(mut device) => {
-                        interact_with_device(&mut device);
+                    Ok(device) => {
+                        tokio::spawn(cyclic_hid_interaction(device, rx));
+                        return; // Start only one HID task
                     }
                     Err(e) => {
                         eprintln!("Failed to open device: {}", e);
@@ -142,31 +147,89 @@ async fn start_hid_interaction() {
     }
 }
 
-fn interact_with_device(device: &mut HidDevice) {
-    println!("Connected to device. Start sending text.");
+async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<TelemetryData>) {
+    println!("Connected to HID device. Sending UDP packets every 10ms.");
+
+    let mut last_packet = TelemetryData {
+        packet_4cc: 0,
+        packet_uid: 0,
+        shiftlights_fraction: 0.0,
+        shiftlights_rpm_start: 0.0,
+        shiftlights_rpm_end: 0.0,
+        shiftlights_rpm_valid: false,
+        vehicle_gear_index: 0,
+        vehicle_gear_index_neutral: 0,
+        vehicle_gear_index_reverse: 0,
+        vehicle_gear_maximum: 0,
+        vehicle_speed: 0.0,
+        vehicle_transmission_speed: 0.0,
+        vehicle_position_x: 0.0,
+        vehicle_position_y: 0.0,
+        vehicle_position_z: 0.0,
+        vehicle_velocity_x: 0.0,
+        vehicle_velocity_y: 0.0,
+        vehicle_velocity_z: 0.0,
+        vehicle_acceleration_x: 0.0,
+        vehicle_acceleration_y: 0.0,
+        vehicle_acceleration_z: 0.0,
+        vehicle_left_direction_x: 0.0,
+        vehicle_left_direction_y: 0.0,
+        vehicle_left_direction_z: 0.0,
+        vehicle_forward_direction_x: 0.0,
+        vehicle_forward_direction_y: 0.0,
+        vehicle_forward_direction_z: 0.0,
+        vehicle_up_direction_x: 0.0,
+        vehicle_up_direction_y: 0.0,
+        vehicle_up_direction_z: 0.0,
+        vehicle_hub_position_bl: 0.0,
+        vehicle_hub_position_br: 0.0,
+        vehicle_hub_position_fl: 0.0,
+        vehicle_hub_position_fr: 0.0,
+        vehicle_hub_velocity_bl: 0.0,
+        vehicle_hub_velocity_br: 0.0,
+        vehicle_hub_velocity_fl: 0.0,
+        vehicle_hub_velocity_fr: 0.0,
+        vehicle_cp_forward_speed_bl: 0.0,
+        vehicle_cp_forward_speed_br: 0.0,
+        vehicle_cp_forward_speed_fl: 0.0,
+        vehicle_cp_forward_speed_fr: 0.0,
+        vehicle_brake_temperature_bl: 0.0,
+        vehicle_brake_temperature_br: 0.0,
+        vehicle_brake_temperature_fl: 0.0,
+        vehicle_brake_temperature_fr: 0.0,
+        vehicle_engine_rpm_max: 0.0,
+        vehicle_engine_rpm_idle: 0.0,
+        vehicle_engine_rpm_current: 0.0,
+        vehicle_throttle: 0.0,
+        vehicle_brake: 0.0,
+        vehicle_clutch: 0.0,
+        vehicle_steering: 0.0,
+        vehicle_handbrake: false,
+        game_total_time: 0.0,
+        game_delta_time: 0.0,
+        game_frame_count: 0,
+        stage_current_time: 0.0,
+        stage_current_distance: 0.0,
+        stage_length: 0.0,
+    };
 
     loop {
-        // Get input from the console
-        print!("Send text to HID Device: ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if let Err(e) = io::stdin().read_line(&mut input) {
-            eprintln!("Failed to read input: {}", e);
-            continue;
+        // Check if there's a new packet from UDP
+        if let Ok(packet) = rx.try_recv() {
+            last_packet = packet; // Update last received packet
         }
 
-        // Encode the input as a UTF-8 byte array, preceded by a dummy report ID (0x00)
-        let mut output = vec![0x00];
-        output.extend_from_slice(input.trim().as_bytes());
+        // Prepare the message to send
+        let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
+        output = create_hid_packet(&last_packet,1);
+        //output.extend_from_slice(&last_packet);//TODO: ve la o que fazes aqui
 
-        // Send the data to the HID device
+        // Send to HID device
         if let Err(e) = device.write(&output) {
             eprintln!("Failed to write to device: {}", e);
-            continue;
         }
 
-        // Read the response from the device
+        // Read response
         let mut buf = [0u8; 64];
         match device.read(&mut buf) {
             Ok(len) => {
@@ -176,8 +239,12 @@ fn interact_with_device(device: &mut HidDevice) {
                 eprintln!("Failed to read from device: {}", e);
             }
         }
+
+        // Sleep asynchronously for 10ms
+        sleep(Duration::from_millis(100)).await;
     }
 }
+
 
 
 fn parse_packet(buffer: &[u8]) -> Result<TelemetryData, &'static str> {
@@ -391,4 +458,24 @@ fn parse_packet(buffer: &[u8]) -> Result<TelemetryData, &'static str> {
 
     Ok(packet)
 
+}
+
+
+//TODO : estava aqui a criar esta funcao, input é a struct e o packet ID, 0 é gear
+/**
+ * MAX Size for hid packet 64 bytes
+ */
+fn create_hid_packet(input:&TelemetryData, packetID:u8) -> Vec<u8>{
+    // Prepare the message to send
+    let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
+    
+    //first byte is the packet ID
+    output.push(packetID);
+    match packetID {
+        1 => { output.push(input.vehicle_gear_index);
+                    /*println!("Sending gear Index {}", input.vehicle_gear_index);*/},
+        _ => println!("Not considered yet"), //TODO
+    }
+
+    output
 }

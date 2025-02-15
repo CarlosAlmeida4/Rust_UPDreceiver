@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 hidapi = "2.0"
 tokio = { version = "1", features = ["full"] }
+serde = "1.0.217"

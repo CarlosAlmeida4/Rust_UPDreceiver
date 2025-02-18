@@ -218,19 +218,19 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
         if let Ok(packet) = rx.try_recv() {
             last_packet = packet; // Update last received packet
         }
-
+        //TODO! - Reduce the packets sent by only sending when theres a change
         // Prepare the message to send
         let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
         output = create_hid_packet(&last_packet,1);
         //output.extend_from_slice(&last_packet);//TODO: ve la o que fazes aqui
-
+        println!("Sent to HID Device: {:?}\n", &output);
         // Send to HID device
         if let Err(e) = device.write(&output) {
             eprintln!("Failed to write to device: {}", e);
         }
 
         // Read response
-        let mut buf = [0u8; 64];
+        let mut buf = [0u8; 5];
         match device.read(&mut buf) {
             Ok(len) => {
                 println!("Received from HID Device: {:?}\n", &buf[..len]);
@@ -241,7 +241,7 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
         }
 
         // Sleep asynchronously for 10ms
-        sleep(Duration::from_millis(100)).await;
+        //sleep(Duration::from_millis(1)).await;
     }
 }
 
@@ -461,7 +461,7 @@ fn parse_packet(buffer: &[u8]) -> Result<TelemetryData, &'static str> {
 }
 
 
-//TODO : estava aqui a criar esta funcao, input é a struct e o packet ID, 0 é gear
+
 /**
  * MAX Size for hid packet 64 bytes
  */

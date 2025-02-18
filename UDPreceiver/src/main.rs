@@ -223,7 +223,7 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
         let mut output: Vec<u8> = vec![0x00]; // Report ID = 0x00
         output = create_hid_packet(&last_packet,1);
         //output.extend_from_slice(&last_packet);//TODO: ve la o que fazes aqui
-        //println!("Sent to HID Device: {:?}\n", &output);
+        println!("Sent to HID Device: {:?}\n", &output);
         // Send to HID device
         if let Err(e) = device.write(&output) {
             eprintln!("Failed to write to device: {}", e);
@@ -241,7 +241,7 @@ async fn cyclic_hid_interaction(mut device: HidDevice, mut rx: mpsc::Receiver<Te
         }
 
         // Sleep asynchronously for 10ms
-        sleep(Duration::from_millis(10)).await;
+        //sleep(Duration::from_millis(1)).await;
     }
 }
 

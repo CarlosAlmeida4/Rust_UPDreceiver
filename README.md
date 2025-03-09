@@ -1,2 +1,2 @@
 # Rust_UPDreceiver
-Small program that receives UDP packet and provides it to other applications
+Check https://carlosalmeida4.github.io/posts/rusthidcommunication/ and https://carlosalmeida4.github.io/posts/rustudppackethandler/ for more information
